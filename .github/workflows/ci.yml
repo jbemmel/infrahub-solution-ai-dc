@@ -42,6 +42,7 @@ jobs:
       dependencies: ${{ steps.changes.outputs.dependencies_all }}
       integration_scope: ${{ steps.scope.outputs.scope }}
       run_full: ${{ steps.scope.outputs.run_full }}
+      blocking_tier: ${{ steps.scope.outputs.blocking_tier }}
     steps:
       - name: "Check out repository code"
         uses: "actions/checkout@v7"
@@ -53,22 +54,33 @@ jobs:
           filters: .github/file-filters.yml
       - name: Decide how much of the integration suite to run
         id: scope
-        # The SDK prefix is tested first: an SDK branch also starts with the broader update-infrahub- prefix.
+        # An Infrahub bump branch (update-infrahub-<v>, not an infrahub-sdk bump) runs the full suite once,
+        # as the blocking step. A dispatch with tier=full runs core (blocking), then full (advisory).
         env:
           DISPATCH_TIER: ${{ github.event.inputs.tier }}
           HEAD_REF: ${{ github.head_ref }}
         run: |
           SCOPE="core"
+          BLOCKING_TIER="core"
+          RUN_FULL="false"
           if [ -n "${DISPATCH_TIER}" ]; then
             SCOPE="${DISPATCH_TIER}"
-          elif [ "${HEAD_REF#update-infrahub-sdk-}" = "${HEAD_REF}" ] && [ "${HEAD_REF#update-infrahub-}" != "${HEAD_REF}" ]; then
-            SCOPE="full"
+            [ "${SCOPE}" = "full" ] && RUN_FULL="true"
+          else
+            case "${HEAD_REF}" in
+              update-infrahub-sdk-*|*-sdk-*) ;;
+              update-infrahub-*)
+                SCOPE="full"
+                BLOCKING_TIER="full"
+                ;;
+            esac
           fi
           {
             echo "scope=${SCOPE}"
-            echo "run_full=$([ "${SCOPE}" = "full" ] && echo true || echo false)"
+            echo "run_full=${RUN_FULL}"
+            echo "blocking_tier=${BLOCKING_TIER}"
           } >> "$GITHUB_OUTPUT"
-          echo "Integration scope selected -> ${SCOPE}"
+          echo "Integration scope selected -> ${SCOPE} (blocking tier: ${BLOCKING_TIER}, advisory full tier: ${RUN_FULL})"
 
   python-lint:
     if: needs.files-changed.outputs.python == 'true' || needs.files-changed.outputs.dependencies == 'true'
@@ -152,7 +164,7 @@ jobs:
     # overlay and server-service assertions need real leaf devices (they were skipped outright before).
     # Measured on an idle 8-core host the full suite takes ~35 min (1.10.6 34:47, 1.11.0b2 36:36); a
     # shared runner has less headroom than that, hence the margin.
-    timeout-minutes: ${{ needs.files-changed.outputs.run_full == 'true' && 240 || 120 }}
+    timeout-minutes: ${{ needs.files-changed.outputs.integration_scope == 'full' && 240 || 120 }}
     env:
       INFRAHUB_DB_TYPE: neo4j
       INFRAHUB_TESTING_LOG_LEVEL: INFO
@@ -179,8 +191,10 @@ jobs:
             exit 1
           fi
           echo "PYTEST_DEBUG_TEMPROOT=/var/lib/github/${RUNNER_NAME/ghrunner/ghrunner_}/_temp" >> "$GITHUB_ENV"
-      - name: "Run the core integration tier (blocking)"
-        run: exec tini -s -g -- uv run invoke test-integration --tier=core
+      - name: "Run the ${{ needs.files-changed.outputs.blocking_tier }} integration tier (blocking)"
+        env:
+          BLOCKING_TIER: ${{ needs.files-changed.outputs.blocking_tier }}
+        run: exec tini -s -g -- uv run invoke test-integration --tier="${BLOCKING_TIER}"
       - name: "Run the full integration tier (advisory)"
         id: full
         # Advisory until the upstream CoreGeneratorGroup / CoreGraphQLQueryGroup HTTP 500 is fixed; then delete this step and the summary step below and run core as `--tier=full`.

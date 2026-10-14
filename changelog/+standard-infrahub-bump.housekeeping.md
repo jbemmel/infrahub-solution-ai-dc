@@ -1,0 +1,1 @@
+Infrahub and infrahub-sdk bumps now move their pins with `scripts/update_infrahub_pins.py`, run the full integration suite once as a blocking check, and are merged automatically when that suite passes on an Infrahub-only bump.
