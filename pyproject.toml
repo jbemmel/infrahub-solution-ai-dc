@@ -108,9 +108,6 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
-# A byte-identical copy of the pin editor shared by every OpsMill demo and solution repository,
-# formatted there for a shorter line length. `ruff check` still lints it; only the wrapping differs.
-exclude = ["scripts/update_infrahub_pins.py"]
 
 [tool.ruff.lint.per-file-ignores]
 # dev/ is a documentation directory (adr/, guides/, knowledge/) that also holds standalone

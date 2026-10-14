@@ -54,8 +54,9 @@ jobs:
           filters: .github/file-filters.yml
       - name: Decide how much of the integration suite to run
         id: scope
-        # An Infrahub bump branch (update-infrahub-<v>, not an infrahub-sdk bump) runs the full suite once,
-        # as the blocking step. A dispatch with tier=full runs core (blocking), then full (advisory).
+        # An Infrahub-only bump branch (update-infrahub-<v>) runs the full suite once, as the blocking step.
+        # A combined bump branch (update-infrahub-<v>-sdk-<s>) and a dispatch with tier=full run core
+        # (blocking), then full (advisory). The SDK prefix is tested first: it also starts with update-infrahub-.
         env:
           DISPATCH_TIER: ${{ github.event.inputs.tier }}
           HEAD_REF: ${{ github.head_ref }}
@@ -68,7 +69,12 @@ jobs:
             [ "${SCOPE}" = "full" ] && RUN_FULL="true"
           else
             case "${HEAD_REF}" in
-              update-infrahub-sdk-*|*-sdk-*) ;;
+              update-infrahub-sdk-*) ;;
+              update-infrahub-*-sdk-*)
+                # A combined Infrahub and infrahub-sdk bump keeps core (blocking), then full (advisory).
+                SCOPE="full"
+                RUN_FULL="true"
+                ;;
               update-infrahub-*)
                 SCOPE="full"
                 BLOCKING_TIER="full"
